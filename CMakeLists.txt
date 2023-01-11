@@ -23,7 +23,8 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(franka_msgs REQUIRED)
 find_package(grasp_srv REQUIRED)
-find_package(sensor_msg REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 
 
 add_executable(grasp_moveit src/grasp_moveit.cpp)
@@ -37,7 +38,7 @@ ament_target_dependencies(
   std_msgs
   geometry_msgs
   franka_msgs
-  sensor_msg
+  sensor_msgs
   grasp_srv
 )
 

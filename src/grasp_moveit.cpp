@@ -9,7 +9,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/clock.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
-#include <moveit/planning_interface/planning_interface.h>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
 
 #include <std_srvs/srv/empty.hpp>
 #include <grasp_srv/srv/grasp_array.hpp>
@@ -18,7 +18,8 @@
 #include <franka_msgs/action/grasp.hpp>
 #include <franka_msgs/action/move.hpp>
 #include <geometry_msgs/msg/transform.h>
-#include <tf2>
+#include <tf2/convert.h>
+#include <tf2/transform_datatypes.h>
 
 
 
@@ -125,9 +126,11 @@ class GraspMoveit : public rclcpp::Node
 
   void cleanup()
   {
+    auto conames = planning_scene_interface.getKnownObjectNames();
+    planning_scene_interface.removeCollisionObjects(conames);
     
-    std::vector< moveit_msgs::msg::CollisionObject> empty_vec;
-    planning_scene_interface.applyCollisionObject(empty_vec);
+    // std::vector< moveit_msgs::msg::CollisionObject> empty_vec;
+    // planning_scene_interface.applyCollisionObject(empty_vec);
     // the reason to use applyCollisionObject() rather than removeCollisionObjects() is the latter is asynchronous;
     // http://docs.ros.org/en/noetic/api/moveit_ros_planning_interface/html/classmoveit_1_1planning__interface_1_1PlanningSceneInterface.html
 
@@ -255,12 +258,15 @@ class GraspMoveit : public rclcpp::Node
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     for(auto grasp_pose : grasp_array)
     {
-      tf2::Transform tf1,tf2;
+      // tf2::Transform tf1,tf2, tf3;
+      // tf2::fromMsg(trans_cam_marker,tf1);
+      // tf2::fromMsg(trans_marker_robot,tf2);
+      // tf2::fromMsg(grasp_pose,tf3);
 
-      auto tf2_transform = static_cast<tf2::Transform>(trans_cam_marker) * static_cast<tf2::Transform>(trans_marker_robot) * static_cast<tf2::Transform>(grasp_pose); 
-      geometry_msgs::msg::Pose transformed_grasp_pose;
-      tf2::toMsg(tf2_transform, transformed_grasp_pose);
-      move_group_interface.setPoseTarget(transformed_grasp_pose);
+      // auto tf2_transform = tf1 * tf2 * tf3;
+      // geometry_msgs::msg::Pose transformed_grasp_pose;
+      // transformed_grasp_pose = tf2::toMsg<tf2::Transform, geometry_msgs::msg::Pose>(tf2_transform);
+      move_group_interface.setPoseTarget(grasp_pose);
 
       if (move_group_interface.plan(plan)==moveit::planning_interface::MoveItErrorCode::SUCCESS)
       {
@@ -291,8 +297,8 @@ class GraspMoveit : public rclcpp::Node
     while (!grasp_client->wait_for_service(std::chrono::seconds(5))) {
     RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "grasp service not available, waiting again...");
     }
-    auto request = std::make_shared<grasp_srv::srv::GraspArray::Request>();
-    auto future = grasp_client->async_send_request(request);
+    auto send_request = std::make_shared<grasp_srv::srv::GraspArray::Request>();
+    auto future = grasp_client->async_send_request(send_request);
     future.wait(); // lead to deadlock?
 
     // add collision obejcts
