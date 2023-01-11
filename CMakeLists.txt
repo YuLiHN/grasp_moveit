@@ -21,6 +21,9 @@ find_package(moveit_ros_planning_interface REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(franka_msgs REQUIRED)
+find_package(grasp_srv REQUIRED)
+find_package(sensor_msg REQUIRED)
 
 
 add_executable(grasp_moveit src/grasp_moveit.cpp)
@@ -31,10 +34,21 @@ ament_target_dependencies(
   grasp_moveit
   "moveit_ros_planning_interface"
   "rclcpp"
+  std_msgs
+  geometry_msgs
+  franka_msgs
+  sensor_msg
+  grasp_srv
 )
 
 install(TARGETS grasp_moveit
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
