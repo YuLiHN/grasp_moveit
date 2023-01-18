@@ -20,6 +20,7 @@
 #include <geometry_msgs/msg/transform.h>
 #include <tf2/convert.h>
 #include <tf2/transform_datatypes.h>
+#include "tf2_ros/static_transform_broadcaster.h"
 
 
 
@@ -42,10 +43,11 @@ class GraspMoveit : public rclcpp::Node
   sensor_msgs::msg::JointState start_joint_state, rot_right, rot_left;
 
   geometry_msgs::msg::Pose example_target_pose;
-  geometry_msgs::msg::Transform trans_marker_robot, trans_cam_marker;
 
   rclcpp_action::Client<Grasp>::SharedPtr gripper_grasp_action;
   rclcpp_action::Client<Move>::SharedPtr gripper_move_action;
+
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_;
 
 
   GraspMoveit(): Node("grasp_moveit",rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)), 
@@ -60,6 +62,39 @@ class GraspMoveit : public rclcpp::Node
     msg.position.z = 0.5;
     return msg;
     }();
+
+    tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+
+    geometry_msgs::msg::TransformStamped world2robot;
+    world2robot.header.stamp = this->get_clock()->now();
+    world2robot.header.frame_id = "world";
+    world2robot.child_frame_id = "panda_link0";
+
+    world2robot.transform.rotation.x=0;
+    world2robot.transform.rotation.y=0;
+    world2robot.transform.rotation.z=0;
+    world2robot.transform.rotation.w=1;
+    world2robot.transform.translation.x=0;
+    world2robot.transform.translation.y=0;
+    world2robot.transform.translation.z=0;
+
+    geometry_msgs::msg::TransformStamped robot2marker;
+    robot2marker.header.stamp = this->get_clock()->now();
+    robot2marker.header.frame_id = "aruco_marker_frame";
+    robot2marker.child_frame_id = "world";
+
+    robot2marker.transform.rotation.x=0;
+    robot2marker.transform.rotation.y=0;
+    robot2marker.transform.rotation.z=0;
+    robot2marker.transform.rotation.w=1;
+    robot2marker.transform.translation.x=-0.302;
+    robot2marker.transform.translation.y=0.097;
+    robot2marker.transform.translation.z=0;
+
+    
+
+    tf_static_broadcaster_->sendTransform(robot2marker);
+    tf_static_broadcaster_->sendTransform(world2robot);
     
 
     // create predefined states
@@ -138,11 +173,11 @@ class GraspMoveit : public rclcpp::Node
     return;
   }
 
-  bool move_to_pose(const geometry_msgs::msg::Pose &target_pose)
+  bool move_to_pose(const geometry_msgs::msg::PoseStamped &target_pose)
   {
     
-    geometry_msgs::msg::Pose pre_grasp_pose = target_pose;
-    pre_grasp_pose.position.z-=0.05;
+    geometry_msgs::msg::PoseStamped pre_grasp_pose = target_pose;
+    pre_grasp_pose.pose.position.z-=0.05;
 
     move_group_interface.setPoseTarget(pre_grasp_pose);
     moveit::planning_interface::MoveGroupInterface::Plan plan_pre_grasp;
@@ -203,12 +238,12 @@ class GraspMoveit : public rclcpp::Node
 
   }
 
-  bool move_straight_up(const geometry_msgs::msg::Pose &target_pose)
+  bool move_straight_up(const geometry_msgs::msg::PoseStamped &target_pose)
   {
     // move_group_interface.setStartStateToCurrentState();
     // auto higher_pose = move_group_interface.getCurrentPose().pose;
     auto higher_pose = target_pose;
-    higher_pose.position.z += 0.10; // First move up (z)
+    higher_pose.pose.position.z += 0.10; // First move up (z)
 
     move_group_interface.setPoseTarget(higher_pose);
     moveit::planning_interface::MoveGroupInterface::Plan plan;
@@ -253,19 +288,11 @@ class GraspMoveit : public rclcpp::Node
   }
 
 
-  bool generate_target_pose(const std::vector<geometry_msgs::msg::Pose> &grasp_array, geometry_msgs::msg::Pose &target_pose)
+  bool generate_target_pose(const std::vector<geometry_msgs::msg::PoseStamped> &grasp_array, geometry_msgs::msg::PoseStamped &target_pose)
   {
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     for(auto grasp_pose : grasp_array)
     {
-      // tf2::Transform tf1,tf2, tf3;
-      // tf2::fromMsg(trans_cam_marker,tf1);
-      // tf2::fromMsg(trans_marker_robot,tf2);
-      // tf2::fromMsg(grasp_pose,tf3);
-
-      // auto tf2_transform = tf1 * tf2 * tf3;
-      // geometry_msgs::msg::Pose transformed_grasp_pose;
-      // transformed_grasp_pose = tf2::toMsg<tf2::Transform, geometry_msgs::msg::Pose>(tf2_transform);
       move_group_interface.setPoseTarget(grasp_pose);
 
       if (move_group_interface.plan(plan)==moveit::planning_interface::MoveItErrorCode::SUCCESS)
@@ -302,11 +329,11 @@ class GraspMoveit : public rclcpp::Node
     future.wait(); // lead to deadlock?
 
     // add collision obejcts
-    std::vector<geometry_msgs::msg::Pose> grasp_array_result = future.get()->grasp_array;
+    std::vector<geometry_msgs::msg::PoseStamped> grasp_array_result = future.get()->grasp_array;
 
     // grasps are supposed to be ranked. 
     // select a target grasp pose from an array.
-    geometry_msgs::msg::Pose target_pose;
+    geometry_msgs::msg::PoseStamped target_pose;
     if (!generate_target_pose(grasp_array_result, target_pose))
     {
       RCLCPP_INFO(this->get_logger(),"no grasps exexcutable, exsiting...");
