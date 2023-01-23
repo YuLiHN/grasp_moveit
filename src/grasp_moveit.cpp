@@ -288,7 +288,7 @@ class GraspMoveit : public rclcpp::Node
   }
 
 
-  bool generate_target_pose(const std::vector<geometry_msgs::msg::PoseStamped> &grasp_array, geometry_msgs::msg::PoseStamped &target_pose)
+  bool select_target_pose(const std::vector<geometry_msgs::msg::PoseStamped> &grasp_array, geometry_msgs::msg::PoseStamped &target_pose)
   {
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     for(auto grasp_pose : grasp_array)
@@ -334,7 +334,7 @@ class GraspMoveit : public rclcpp::Node
     // grasps are supposed to be ranked. 
     // select a target grasp pose from an array.
     geometry_msgs::msg::PoseStamped target_pose;
-    if (!generate_target_pose(grasp_array_result, target_pose))
+    if (!select_target_pose(grasp_array_result, target_pose))
     {
       RCLCPP_INFO(this->get_logger(),"no grasps exexcutable, exsiting...");
       return;
@@ -368,6 +368,9 @@ class GraspMoveit : public rclcpp::Node
   {
     cleanup();
 
+    if (!move_to_start()){cleanup();return;}
+    RCLCPP_INFO(this->get_logger(),"Moved to start successfully! Waiting for the grasps");
+
     RCLCPP_INFO_STREAM(this->get_logger(),"time is: "<<std::to_string(rclcpp::Clock{}.now().seconds()));
     
     return;
@@ -381,7 +384,8 @@ int main(int argc, char ** argv)
   
   rclcpp::init(argc, argv);
   auto grasp_moveit = std::make_shared<GraspMoveit>();
-  rclcpp::executors::MultiThreadedExecutor executor;
+  // rclcpp::executors::MultiThreadedExecutor executor;
+  rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(grasp_moveit);
   executor.spin();
 
