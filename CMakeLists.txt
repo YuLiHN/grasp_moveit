@@ -17,14 +17,18 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(moveit_core REQUIRED) 
+find_package(moveit_ros_planning REQUIRED) 
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(franka_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(grasp_srv REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 
 add_executable(grasp_moveit src/grasp_moveit.cpp)
@@ -33,6 +37,8 @@ target_include_directories(grasp_moveit PUBLIC
   $<INSTALL_INTERFACE:include>)
 ament_target_dependencies(
   grasp_moveit
+  "moveit_core"
+  "moveit_ros_planning"
   "moveit_ros_planning_interface"
   "rclcpp"
   std_msgs
@@ -40,6 +46,8 @@ ament_target_dependencies(
   franka_msgs
   sensor_msgs
   grasp_srv
+  visualization_msgs
+  tf2_geometry_msgs
 )
 
 install(TARGETS grasp_moveit

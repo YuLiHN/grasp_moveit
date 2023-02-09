@@ -8,28 +8,39 @@
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <rclcpp/clock.hpp>
+
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/planning_scene_monitor/planning_scene_monitor.h>
 
 #include <std_srvs/srv/empty.hpp>
 #include <grasp_srv/srv/grasp_array.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <franka_msgs/action/grasp.hpp>
 #include <franka_msgs/action/move.hpp>
 #include <geometry_msgs/msg/transform.h>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <tf2/convert.h>
 #include <tf2/transform_datatypes.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include "tf2_ros/static_transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 
 
-using std::placeholders::_1;
-using std::placeholders::_2;
+
+// using std::placeholders::_1;
+// using std::placeholders::_2;
 
 using franka_msgs::action::Grasp;
 using franka_msgs::action::Move;
+const double pre_grasp_offset_z = -0.05; //meter
 const std::string MOVE_GROUP = "panda_arm";
+const std::string END_EFFECTOR_FRAME = "panda_hand_tcp";
 
 
 
@@ -38,16 +49,27 @@ class GraspMoveit : public rclcpp::Node
   public:
   moveit::planning_interface::MoveGroupInterface move_group_interface;
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  std::shared_ptr<planning_scene_monitor::PlanningSceneMonitor> psm;
   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr exec_grasp_service, move_to_start_service, test_function_service;
   rclcpp::Client<grasp_srv::srv::GraspArray>::SharedPtr grasp_client;
-  sensor_msgs::msg::JointState start_joint_state, rot_right, rot_left;
+  rclcpp::callback_group::CallbackGroup::SharedPtr callback_group_;
+  sensor_msgs::msg::JointState start_joint_state, rot_right, rot_left;  
 
+
+  std::shared_ptr<occupancy_map_monitor::OccupancyMapMonitor> occ_moni;
+  geometry_msgs::msg::TransformStamped transform_cam_to_marker;
   geometry_msgs::msg::Pose example_target_pose;
 
   rclcpp_action::Client<Grasp>::SharedPtr gripper_grasp_action;
   rclcpp_action::Client<Move>::SharedPtr gripper_move_action;
 
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr empty_pc_pub;
+
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_static_broadcaster_;
+  std::shared_ptr<tf2_ros::StaticTransformBroadcaster> target_pose_broadcaster_;
+
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener;
 
 
   GraspMoveit(): Node("grasp_moveit",rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)), 
@@ -63,12 +85,23 @@ class GraspMoveit : public rclcpp::Node
     return msg;
     }();
 
+    tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+
+    // const std::string map_frame = "kinect2_ir_optical_frame";
+    // occ_moni = std::make_shared<occupancy_map_monitor::OccupancyMapMonitor>(std::shared_ptr<rclcpp::Node>(std::move(this)), tf_buffer, map_frame, 0.002);
+    // psm = std::make_shared<planning_scene_monitor::PlanningSceneMonitor>(std::shared_ptr<rclcpp::Node>(std::move(this)),"robot_description");
+    // psm->requestPlanningSceneState("/get_planning_scene");
+    // psm->startSceneMonitor("monitored_planning_scene");
+
     tf_static_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
+    target_pose_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
+    
 
     geometry_msgs::msg::TransformStamped world2robot;
     world2robot.header.stamp = this->get_clock()->now();
     world2robot.header.frame_id = "world";
-    world2robot.child_frame_id = "panda_link0";
+    world2robot.child_frame_id = "panda_table_link";
 
     world2robot.transform.rotation.x=0;
     world2robot.transform.rotation.y=0;
@@ -80,21 +113,21 @@ class GraspMoveit : public rclcpp::Node
 
     geometry_msgs::msg::TransformStamped robot2marker;
     robot2marker.header.stamp = this->get_clock()->now();
-    robot2marker.header.frame_id = "aruco_marker_frame";
+    robot2marker.header.frame_id = "aruco_marker_frame_windowed";
     robot2marker.child_frame_id = "world";
 
     robot2marker.transform.rotation.x=0;
     robot2marker.transform.rotation.y=0;
     robot2marker.transform.rotation.z=0;
     robot2marker.transform.rotation.w=1;
-    robot2marker.transform.translation.x=-0.302;
-    robot2marker.transform.translation.y=0.097;
-    robot2marker.transform.translation.z=0;
+    robot2marker.transform.translation.x=-0.23;
+    robot2marker.transform.translation.y=0.200;
+    robot2marker.transform.translation.z=-0.00;
 
     
-
-    tf_static_broadcaster_->sendTransform(robot2marker);
     tf_static_broadcaster_->sendTransform(world2robot);
+    tf_static_broadcaster_->sendTransform(robot2marker);
+    
     
 
     // create predefined states
@@ -103,7 +136,6 @@ class GraspMoveit : public rclcpp::Node
     for(int i=1;i<=7;i++)
     {
       joints_name.push_back(name_prefix+std::to_string(i));
-      RCLCPP_INFO(this->get_logger(),name_prefix+std::to_string(i));
     }
     start_joint_state.name=joints_name;
     start_joint_state.position = std::vector<double,std::allocator<double>>{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, M_PI_4};
@@ -114,11 +146,17 @@ class GraspMoveit : public rclcpp::Node
     rot_left.name =joints_name;
     rot_left.position = std::vector<double,std::allocator<double>>{0, -M_PI_4, 0, -3 * M_PI_4, 0, M_PI_2, -0.84};
 
+    // cb group
+    callback_group_ = this->create_callback_group(rclcpp::callback_group::CallbackGroupType::Reentrant);
+
     // initialize services and client
-    exec_grasp_service=this->create_service<std_srvs::srv::Empty>("execute_grasp", std::bind(&GraspMoveit::execute_grasp_cb,this,_1,_2));
-    move_to_start_service=this->create_service<std_srvs::srv::Empty>("move_to_start", std::bind(&GraspMoveit::move_to_start_cb,this,_1,_2));
-    test_function_service=this->create_service<std_srvs::srv::Empty>("test", std::bind(&GraspMoveit::test_function_cb,this,_1,_2));
-    grasp_client=this->create_client<grasp_srv::srv::GraspArray>("grasp_array");
+    exec_grasp_service=this->create_service<std_srvs::srv::Empty>("execute_grasp", std::bind(&GraspMoveit::execute_grasp_cb,this,std::placeholders::_1,std::placeholders::_2));
+    move_to_start_service=this->create_service<std_srvs::srv::Empty>("move_to_start", std::bind(&GraspMoveit::move_to_start_cb,this,std::placeholders::_1,std::placeholders::_2));
+    test_function_service=this->create_service<std_srvs::srv::Empty>("test", std::bind(&GraspMoveit::test_function_cb,this,std::placeholders::_1,std::placeholders::_2));
+    grasp_client=this->create_client<grasp_srv::srv::GraspArray>("grasp_array", rmw_qos_profile_services_default, callback_group_);
+
+    // pub
+    empty_pc_pub = this->create_publisher<std_msgs::msg::Empty>("empty_pc", 10);
 
     // initialize actions
     gripper_move_action=rclcpp_action::create_client<Move>(this,"/panda_gripper/move");
@@ -126,8 +164,8 @@ class GraspMoveit : public rclcpp::Node
     
 
     move_group_interface.startStateMonitor();
-    
-
+    move_group_interface.setEndEffectorLink(END_EFFECTOR_FRAME);
+    RCLCPP_INFO_STREAM(this->get_logger(), "end effector link is: "<<move_group_interface.getEndEffectorLink());
     RCLCPP_INFO(this->get_logger(), "initialization successful! waiting for the service /execute_grasp call");
   }
 
@@ -145,6 +183,7 @@ class GraspMoveit : public rclcpp::Node
 
   bool move_to_start()
   {
+    move_group_interface.setMaxVelocityScalingFactor(0.1);
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     // move_group_interface.setStartState(*move_group_interface.getCurrentState());
     // move_group_interface.setStartStateToCurrentState();
@@ -162,6 +201,10 @@ class GraspMoveit : public rclcpp::Node
   void cleanup()
   {
     auto conames = planning_scene_interface.getKnownObjectNames();
+    // for (auto name : conames)
+    // {
+    //   RCLCPP_INFO_STREAM(this->get_logger(), "collision object name: "<< name);
+    // }
     planning_scene_interface.removeCollisionObjects(conames);
     
     // std::vector< moveit_msgs::msg::CollisionObject> empty_vec;
@@ -175,9 +218,20 @@ class GraspMoveit : public rclcpp::Node
 
   bool move_to_pose(const geometry_msgs::msg::PoseStamped &target_pose)
   {
+    geometry_msgs::msg::TransformStamped rotation;
+    rotation.transform.rotation = target_pose.pose.orientation;
+
+    geometry_msgs::msg::Vector3Stamped pre_grasp_offset, pre_grasp_offset_cam;
+    pre_grasp_offset.vector.x=0.;
+    pre_grasp_offset.vector.y=0.;
+    pre_grasp_offset.vector.z=pre_grasp_offset_z;
+
+    tf2::doTransform(pre_grasp_offset, pre_grasp_offset_cam, rotation);
     
     geometry_msgs::msg::PoseStamped pre_grasp_pose = target_pose;
-    pre_grasp_pose.pose.position.z-=0.05;
+    pre_grasp_pose.pose.position.x+=pre_grasp_offset_cam.vector.x;
+    pre_grasp_pose.pose.position.y+=pre_grasp_offset_cam.vector.y;
+    pre_grasp_pose.pose.position.z+=pre_grasp_offset_cam.vector.z;
 
     move_group_interface.setPoseTarget(pre_grasp_pose);
     moveit::planning_interface::MoveGroupInterface::Plan plan_pre_grasp;
@@ -191,16 +245,38 @@ class GraspMoveit : public rclcpp::Node
 
     RCLCPP_INFO(this->get_logger(),"Moved to pre grasp pose successfully!");
 
-    // move_group_interface.setStartStateToCurrentState();
-    move_group_interface.setPoseTarget(target_pose);
-    moveit::planning_interface::MoveGroupInterface::Plan plan_target_pose;
-    auto success_target_pose = move_group_interface.plan(plan_target_pose);
+    // auto msg = std_msgs::msg::Empty();
+    // empty_pc_pub->publish(msg);
+    // psm->clearOctomap();
 
-    if (!success_target_pose){return false;}
+    // move_group_interface.setStartStateToCurrentState();
+    // move_group_interface.setPoseTarget(target_pose);
+    // moveit::planning_interface::MoveGroupInterface::Plan plan_target_pose;
+    // auto success_target_pose = move_group_interface.plan(plan_target_pose);
+    
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = plan_cartesian_path(target_pose, trajectory);
+    
+    // if (!success_target_pose){return false;}
+    if(fraction==-1.0){return false;}
     if(!ask_continue()){return false;}
-    move_group_interface.execute(plan_target_pose);
-    // rclcpp::sleep_for(std::chrono::seconds(1));
+    move_group_interface.execute(trajectory);
     return true;
+  }
+
+  double plan_cartesian_path(const geometry_msgs::msg::PoseStamped& target_pose, moveit_msgs::msg::RobotTrajectory& trajectory)
+  {
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose.pose);
+
+    move_group_interface.setPoseReferenceFrame(target_pose.header.frame_id);
+    double fraction = move_group_interface.computeCartesianPath(waypoints,
+                                                0.005, // eef step
+                                                0.00,    //jump threshol
+                                                trajectory);
+    RCLCPP_INFO_STREAM(this->get_logger(),"fraction is: "<<fraction);
+
+    return fraction;
   }
 
   bool close_gripper()
@@ -242,8 +318,40 @@ class GraspMoveit : public rclcpp::Node
   {
     // move_group_interface.setStartStateToCurrentState();
     // auto higher_pose = move_group_interface.getCurrentPose().pose;
-    auto higher_pose = target_pose;
+
+
+    if(!tf_buffer->canTransform("aruco_marker_frame_windowed",
+                                target_pose.header.frame_id,
+                                tf2::TimePointZero
+                                ))
+    {
+      RCLCPP_ERROR_STREAM(this->get_logger(), "No transformation: ");
+      return false;
+    }
+
+    try{
+      transform_cam_to_marker = tf_buffer->lookupTransform(
+                                "aruco_marker_frame_windowed",
+                                target_pose.header.frame_id,
+                                tf2::TimePointZero
+                                  );
+      
+    }
+    catch(tf2::TransformException &e){
+      RCLCPP_ERROR_STREAM(this->get_logger(), "Error in lookuptransform: "<<e.what());
+      return false;
+    }
+
+    geometry_msgs::msg::PoseStamped target_pose_marker_frame;
+
+    tf2::doTransform(target_pose, target_pose_marker_frame, transform_cam_to_marker);
+
+    RCLCPP_INFO_STREAM(this->get_logger(), "target pose marker frame: "<< target_pose_marker_frame.header.frame_id);
+
+    auto higher_pose = target_pose_marker_frame;
     higher_pose.pose.position.z += 0.10; // First move up (z)
+
+    // moveit_msgs::msg::RobotTrajectory trajectory = plan_cartesian_path(higher_pose);
 
     move_group_interface.setPoseTarget(higher_pose);
     moveit::planning_interface::MoveGroupInterface::Plan plan;
@@ -251,6 +359,7 @@ class GraspMoveit : public rclcpp::Node
     if(!success){return false;}
     if(!ask_continue()){return false;}
     move_group_interface.execute(plan);
+    // move_group_interface.execute(trajectory);
 
     return true;
   }
@@ -267,22 +376,24 @@ class GraspMoveit : public rclcpp::Node
     if(!ask_continue()){return false;}
     move_group_interface.execute(plan);
     
-
+    move_group_interface.setMaxVelocityScalingFactor(0.5);
     // turn left
     // move_group_interface.setStartStateToCurrentState();
     move_group_interface.setJointValueTarget(rot_left);
     auto success_left = move_group_interface.plan(plan);
-    if(!success_left){return false;}
-    if(!ask_continue()){return false;}
+    if(!success_left){move_group_interface.setMaxVelocityScalingFactor(0.1);return false;}
+    if(!ask_continue()){move_group_interface.setMaxVelocityScalingFactor(0.1);return false;}
     move_group_interface.execute(plan);
 
     // go back to start state
     // move_group_interface.setStartStateToCurrentState();
     move_group_interface.setJointValueTarget(start_joint_state);
     auto success_start = move_group_interface.plan(plan);
-    if(!success_start){return false;}
-    if(!ask_continue()){return false;}
+    if(!success_start){move_group_interface.setMaxVelocityScalingFactor(0.1);return false;}
+    if(!ask_continue()){move_group_interface.setMaxVelocityScalingFactor(0.1);return false;}
     move_group_interface.execute(plan);
+
+    move_group_interface.setMaxVelocityScalingFactor(0.1); // default
     
     return true;
   }
@@ -293,13 +404,46 @@ class GraspMoveit : public rclcpp::Node
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     for(auto grasp_pose : grasp_array)
     {
-      move_group_interface.setPoseTarget(grasp_pose);
+      geometry_msgs::msg::TransformStamped grasp_pose_transform;
+      grasp_pose_transform.header.stamp = this->get_clock()->now();
+      grasp_pose_transform.header.frame_id=grasp_pose.header.frame_id;
+      grasp_pose_transform.child_frame_id="grasp_pose_frame";
 
+      grasp_pose_transform.transform.rotation = grasp_pose.pose.orientation;
+      grasp_pose_transform.transform.translation.x = grasp_pose.pose.position.x;
+      grasp_pose_transform.transform.translation.y = grasp_pose.pose.position.y;
+      grasp_pose_transform.transform.translation.z = grasp_pose.pose.position.z;
+
+      target_pose_broadcaster_->sendTransform(grasp_pose_transform);
+
+      geometry_msgs::msg::TransformStamped rotation;
+      rotation.transform.rotation = target_pose.pose.orientation;
+
+      geometry_msgs::msg::Vector3Stamped pre_grasp_offset, pre_grasp_offset_cam;
+      pre_grasp_offset.vector.x=0.;
+      pre_grasp_offset.vector.y=0.;
+      pre_grasp_offset.vector.z=pre_grasp_offset_z;
+
+      tf2::doTransform(pre_grasp_offset, pre_grasp_offset_cam, rotation);
+      
+      geometry_msgs::msg::PoseStamped pre_grasp_pose = grasp_pose;
+      pre_grasp_pose.pose.position.x+=pre_grasp_offset_cam.vector.x;
+      pre_grasp_pose.pose.position.y+=pre_grasp_offset_cam.vector.y;
+      pre_grasp_pose.pose.position.z+=pre_grasp_offset_cam.vector.z;
+
+      move_group_interface.setPoseTarget(pre_grasp_pose);
       if (move_group_interface.plan(plan)==moveit::planning_interface::MoveItErrorCode::SUCCESS)
       {
         target_pose=grasp_pose;
+        RCLCPP_INFO(this->get_logger(),"select one grasp successfully!");
         return true;
       }
+      // double fraction = plan_cartesian_path(pre_grasp_pose, trajectory_pre_grasp);
+      // if (fraction!=-1.0)
+      // {
+      //   target_pose=grasp_pose;
+      //   return true;
+      // }
     }
 
     return false;
@@ -316,31 +460,36 @@ class GraspMoveit : public rclcpp::Node
   void execute_grasp_cb(const std_srvs::srv::Empty::Request::SharedPtr request,
                       std_srvs::srv::Empty::Response::SharedPtr response)
   {
-    cleanup();
+    // all actions are registered in the response callback, the reason is to avoid deadlock
+    auto send_request = std::make_shared<grasp_srv::srv::GraspArray::Request>();
+    auto future = grasp_client->async_send_request(send_request, std::bind(&GraspMoveit::response_callback, this, std::placeholders::_1));
 
+  }
+
+  void response_callback(rclcpp::Client<grasp_srv::srv::GraspArray>::SharedFuture future)
+  { 
+    //for test
+    // auto msg = std_msgs::msg::Empty();
+    // empty_pc_pub->publish(msg);
+    // psm->requestPlanningSceneState("/get_planning_scene");
+    // psm->clearOctomap();
+    
     if (!move_to_start()){cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"Moved to start successfully! Waiting for the grasps");
     
-    while (!grasp_client->wait_for_service(std::chrono::seconds(5))) {
-    RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "grasp service not available, waiting again...");
-    }
-    auto send_request = std::make_shared<grasp_srv::srv::GraspArray::Request>();
-    auto future = grasp_client->async_send_request(send_request);
-    future.wait(); // lead to deadlock?
 
-    // add collision obejcts
     std::vector<geometry_msgs::msg::PoseStamped> grasp_array_result = future.get()->grasp_array;
 
     // grasps are supposed to be ranked. 
     // select a target grasp pose from an array.
     geometry_msgs::msg::PoseStamped target_pose;
+    
     if (!select_target_pose(grasp_array_result, target_pose))
     {
       RCLCPP_INFO(this->get_logger(),"no grasps exexcutable, exsiting...");
       return;
     }
     
-
     if (!open_gripper()) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"opened gripper successfully! Next step: move to target pose");
 
@@ -348,12 +497,13 @@ class GraspMoveit : public rclcpp::Node
     if (!move_to_pose(target_pose)) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"Moved to target grasp pose successfully! Next step: close gripper");
 
+    rclcpp::sleep_for(std::chrono::seconds(2));
+
     if (!close_gripper()) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"closed gripper successfully! Next step: move straight up");
 
-    // if (!move_straight_up(example_target_pose)) {cleanup();return;}
-    if (!move_to_pose(target_pose)) {cleanup();return;}
-    RCLCPP_INFO(this->get_logger(),"move straight up successfully! Next step: test grasp");
+    if (!move_straight_up(target_pose)) {cleanup();return;}
+    RCLCPP_INFO(this->get_logger(),"moved straight up! Next step: test grasp");
 
     if (!test_grasp()) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"tested grasp successfully! Next step: open gripper");
@@ -362,6 +512,7 @@ class GraspMoveit : public rclcpp::Node
     RCLCPP_INFO(this->get_logger(),"opened gripper successfully!");
 
   }
+
 
   void test_function_cb(const std_srvs::srv::Empty::Request::SharedPtr request,
                       std_srvs::srv::Empty::Response::SharedPtr response)
@@ -384,8 +535,8 @@ int main(int argc, char ** argv)
   
   rclcpp::init(argc, argv);
   auto grasp_moveit = std::make_shared<GraspMoveit>();
-  // rclcpp::executors::MultiThreadedExecutor executor;
-  rclcpp::executors::SingleThreadedExecutor executor;
+  rclcpp::executors::MultiThreadedExecutor executor;
+  // rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(grasp_moveit);
   executor.spin();
 
