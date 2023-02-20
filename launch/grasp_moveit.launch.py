@@ -16,8 +16,7 @@ def generate_launch_description():
     grasp_moveit = Node(
             package='grasp_moveit',
             executable='grasp_moveit',
-            emulate_tty=True,
-            parameters=[{}],
+            parameters=[],
             output='screen')
 
     return LaunchDescription([
