@@ -21,6 +21,7 @@ find_package(moveit_core REQUIRED)
 find_package(moveit_ros_planning REQUIRED) 
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(franka_msgs REQUIRED)
@@ -50,7 +51,20 @@ ament_target_dependencies(
   tf2_geometry_msgs
 )
 
-install(TARGETS grasp_moveit
+add_executable(precheck src/precheck.cpp)
+target_include_directories(precheck PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(
+  precheck
+  std_srvs
+  "moveit_core"
+  "moveit_ros_planning"
+  "moveit_ros_planning_interface"
+  "rclcpp"
+)
+
+install(TARGETS grasp_moveit precheck
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY

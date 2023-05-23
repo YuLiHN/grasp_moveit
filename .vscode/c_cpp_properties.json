@@ -1,0 +1,45 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/rpl/ws_moveit2/install/moveit_simple_controller_manager/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_servo/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_visualization/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_planning_interface/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_benchmarks/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_warehouse/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_robot_interaction/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_perception/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_move_group/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_planners_ompl/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_planning/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_ros_occupancy_map_monitor/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_kinematics/include/**",
+        "/home/rpl/ws_moveit2/install/chomp_motion_planner/include/**",
+        "/home/rpl/ws_moveit2/install/moveit_core/include/**",
+        "/home/rpl/franka_ros2_ws/install/joint_effort_trajectory_controller/include/**",
+        "/home/rpl/franka_ros2_ws/install/grasp_srv/include/**",
+        "/home/rpl/franka_ros2_ws/install/franka_hardware/include/**",
+        "/home/rpl/franka_ros2_ws/install/franka_example_controllers/include/**",
+        "/home/rpl/franka_ros2_ws/install/franka_msgs/include/**",
+        "/opt/ros/foxy/include/**",
+        "/home/rpl/franka_ros2_ws/src/franka_ros2/franka_example_controllers/include/**",
+        "/home/rpl/franka_ros2_ws/src/franka_ros2/franka_gripper/include/**",
+        "/home/rpl/franka_ros2_ws/src/franka_ros2/franka_hardware/include/**",
+        "/home/rpl/franka_ros2_ws/src/franka_ros2/joint_effort_trajectory_controller/include/**",
+        "/home/rpl/franka_ros2_ws/src/hello_moveit/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

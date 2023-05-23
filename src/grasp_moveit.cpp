@@ -41,6 +41,8 @@
 using franka_msgs::action::Grasp;
 using franka_msgs::action::Move;
 const double pre_grasp_offset_z = -0.075; //meter
+const double UP_OFFSET_Y = 0.0;
+const double UP_OFFSET_Z = 0.1;
 const std::string MOVE_GROUP = "panda_arm";
 const std::string END_EFFECTOR_FRAME = "panda_hand_tcp";
 
@@ -119,9 +121,9 @@ class GraspMoveit : public rclcpp::Node
     robot2marker.transform.rotation.y=0;
     robot2marker.transform.rotation.z=0;
     robot2marker.transform.rotation.w=1;
-    robot2marker.transform.translation.x=-0.24;
-    robot2marker.transform.translation.y=0.200;
-    robot2marker.transform.translation.z=-0.00;
+    robot2marker.transform.translation.x=-0.24; // table -0.24 shelf -0.16
+    robot2marker.transform.translation.y=0.200; // table 0.200 shelf 0.235
+    robot2marker.transform.translation.z=0.00; // 0.00
 
     
     tf_static_broadcaster_->sendTransform(world2robot);
@@ -288,7 +290,7 @@ class GraspMoveit : public rclcpp::Node
 
   }
 
-  bool move_straight_up(const geometry_msgs::msg::PoseStamped &target_pose, const geometry_msgs::msg::TransformStamped &transform_cam_to_marker)
+  bool move_straight_up(const geometry_msgs::msg::PoseStamped &target_pose, const geometry_msgs::msg::TransformStamped &transform_cam_to_marker, const double &offset_z=0., const double &offset_y=0.)
   {
     // move_group_interface.setStartStateToCurrentState();
     // auto higher_pose = move_group_interface.getCurrentPose().pose;
@@ -322,13 +324,15 @@ class GraspMoveit : public rclcpp::Node
     //   higher_poses.push_back(up_pose);
     // }
     geometry_msgs::msg::PoseStamped higher_pose1 = target_pose_marker_frame;
-    geometry_msgs::msg::PoseStamped higher_pose2 = target_pose_marker_frame;
-    higher_pose1.pose.position.z += 0.10;
-    higher_pose2.pose.position.z += 0.05;
+    // geometry_msgs::msg::PoseStamped higher_pose2 = target_pose_marker_frame;
+    higher_pose1.pose.position.z += offset_z;
+    higher_pose1.pose.position.y += offset_y;
+    // higher_pose2.pose.position.z += 0.05;
+    // higher_pose2.pose.position.y += offset_y;
     higher_poses.push_back(higher_pose1);
-    higher_poses.push_back(higher_pose2);
+    // higher_poses.push_back(higher_pose2);
 
-    RCLCPP_INFO_STREAM(this->get_logger(), "higer poses: "<<higher_poses.size());
+    // RCLCPP_INFO_STREAM(this->get_logger(), "higer poses: "<<higher_poses.size());
 
     for(auto higher_pose: higher_poses)
     {
@@ -556,7 +560,7 @@ class GraspMoveit : public rclcpp::Node
     if (!close_gripper()) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"closed gripper successfully! Next step: move straight up");
 
-    if (!move_straight_up(target_pose, transform_cam_to_marker)) {cleanup();return;}
+    if (!move_straight_up(target_pose, transform_cam_to_marker, UP_OFFSET_Z, UP_OFFSET_Y)) {cleanup();return;}
     RCLCPP_INFO(this->get_logger(),"moved straight up! Next step: test grasp");
 
     if (!test_grasp()) {cleanup();return;}
